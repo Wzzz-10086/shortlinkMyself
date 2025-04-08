@@ -13,7 +13,7 @@ import com.wzzz.shortlink.admin.dao.mapper.GroupMapper;
 import com.wzzz.shortlink.admin.dto.req.GroupSortReqDTO;
 import com.wzzz.shortlink.admin.dto.req.GroupUpdateDTO;
 import com.wzzz.shortlink.admin.dto.resp.ShortLinkGroupRespDTO;
-import com.wzzz.shortlink.admin.remote.ShortLinkRemoteService;
+import com.wzzz.shortlink.admin.remote.ShortLinkActualRemoteService;
 import com.wzzz.shortlink.admin.remote.dto.resp.ShortLinkGroupCountQueryRespDTO;
 import com.wzzz.shortlink.admin.service.GroupService;
 import com.wzzz.shortlink.admin.toolkit.RandomUtil;
@@ -38,8 +38,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
     @Value("${short-link.group.max-num}")
     private Integer groupMaxNum;
 
-    ShortLinkRemoteService shortLinkRemoteService = new ShortLinkRemoteService() {
-    };
+    private final ShortLinkActualRemoteService shortLinkActualRemoteService;
 
     @Override
     public void saveGroup(String groupName) {
@@ -56,13 +55,13 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
                     .eq(GroupDO::getUsername, username)
                     .eq(GroupDO::getDelFlag, 0);
             List<GroupDO> groupDOList = baseMapper.selectList(queryWrapper);
-            if (CollUtil.isNotEmpty(groupDOList) && groupDOList.size() >= groupMaxNum) {
+            if (CollUtil.isNotEmpty(groupDOList) && groupDOList.size() == groupMaxNum) {
                 throw new ClientException(String.format("已超出最大分组数：%d", groupMaxNum));
             }
             String gid;
             do {
                 gid = RandomUtil.generateRandom();
-            } while (!hasGid(username, gid));
+            } while (hasGid(username, gid));
             GroupDO groupDO = GroupDO.builder()
                     .gid(gid)
                     .sortOrder(0)
@@ -97,7 +96,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
 
         List<String> mylist = groupDOList.stream().map(GroupDO::getGid).toList();
         // 调用远程服务，获取每个分组的短链接数量统计
-        Result<List<ShortLinkGroupCountQueryRespDTO>> listResult = shortLinkRemoteService
+        Result<List<ShortLinkGroupCountQueryRespDTO>> listResult = shortLinkActualRemoteService
                 .listGroupShortLinkCount(mylist);
 
         // 将分组实体列表转换为DTO对象列表
@@ -165,6 +164,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
         LambdaQueryWrapper<GroupDO> queryWrapper = Wrappers.lambdaQuery(GroupDO.class)
                 .eq(GroupDO::getGid, gid)
                 .eq(GroupDO::getUsername,Optional.ofNullable(username).orElse(UserContext.getUsername()));
+        //该用户组内是否有该gid
         GroupDO hasGidFlag = baseMapper.selectOne(queryWrapper);
         return  hasGidFlag != null;
 

@@ -93,6 +93,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserDO> implements 
             if (insert < 1) {
                 throw new ClientException(UserErrorCode.USER_REGISTER_FAIL);
             }
+            //布隆过滤器
             userRegisterCachePenetrationBloomFilter.add(requestParam.getUsername());
             groupService.saveGroup(requestParam.getUsername(),"默认分组");
         }
@@ -114,6 +115,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserDO> implements 
 
     @Override
     public UserLoginRespDTO login(UserLoginReqDTO userLoginReqDTO) {
+        //查询是否有该用户
         LambdaQueryWrapper<UserDO> queryWrapper = Wrappers.lambdaQuery(UserDO.class)
                 .eq(UserDO::getUsername, userLoginReqDTO.getUsername())
                 .eq(UserDO::getPassword, userLoginReqDTO.getPassword())
