@@ -5,7 +5,6 @@ import com.wzzz.shortlink.admin.common.convention.errorcode.IErrorCode;
 public enum UserErrorCode implements IErrorCode {
 
 
-    USER_TOKEN_ERROR("A00200", "用户token验证失败"),
     USER_NULL("B00200", "用户记录不存在"),
     USER_EXIST("B00201", "用户记录已存在"),
 
