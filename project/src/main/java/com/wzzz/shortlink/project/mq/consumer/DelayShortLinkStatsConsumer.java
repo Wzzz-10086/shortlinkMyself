@@ -37,6 +37,7 @@ import static com.wzzz.shortlink.project.common.constant.RedisKeyConstant.DELAY_
  * 公众号：马丁玩编程，回复：加群，添加马哥微信（备注：link）获取项目资料
  */
 @Component
+@Deprecated
 @RequiredArgsConstructor
 public class DelayShortLinkStatsConsumer implements InitializingBean {
 
@@ -70,6 +71,6 @@ public class DelayShortLinkStatsConsumer implements InitializingBean {
 
     @Override
     public void afterPropertiesSet() throws Exception {
-        onMessage();
+        //onMessage();
     }
 }

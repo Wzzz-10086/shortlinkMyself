@@ -136,7 +136,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             }
             throw new ServiceException(String.format("短链接已存在 %s", fullShortUrl));
         }
-
+        //设置短链接有效期
         stringRedisTemplate.opsForValue().set(
                 String.format(GOTO_SHORT_LINK_KEY, fullShortUrl),
                 requestParam.getOriginUrl(),
@@ -226,9 +226,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         } else { //gid改变
             RReadWriteLock readWriteLock = redissonClient.getReadWriteLock(String.format(LOCK_GID_UPDATE_KEY, requestParam.getFullShortUrl()));
             RLock rLock = readWriteLock.writeLock();
-            if (!rLock.tryLock()) {
-                throw new ServiceException("短链接正在被访问，请稍后再试...");
-            }
+            rLock.lock();
             try {
                 LambdaUpdateWrapper<ShortLinkDO> linkUpdateWrapper = Wrappers.lambdaUpdate(ShortLinkDO.class)
                         .eq(ShortLinkDO::getFullShortUrl, requestParam.getFullShortUrl())
@@ -355,27 +353,6 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
 
     @Override
     public void restoreUrl(String shortUri, ServletRequest request, ServletResponse response) throws IOException {
-//        //域名名称 domain
-//        String serverName = request.getServerName();
-//        String fullShortUrl = serverName + "/" + shortUri;
-//        //查询当前完整短链接对应的gid
-//        LambdaQueryWrapper<ShortLinkGotoDO> linkGotoQueryWrapper = Wrappers.lambdaQuery(ShortLinkGotoDO.class)
-//                .eq(ShortLinkGotoDO::getFullShortUrl, fullShortUrl);
-//        ShortLinkGotoDO shortLinkGotoDO = shortLinkGotoMapper.selectOne(linkGotoQueryWrapper);
-//        if (shortLinkGotoDO == null) {
-//            // 严谨来说此处需要进行封控
-//            return;
-//        }
-//        //查询gid下的原始连接 gid为分片键
-//        LambdaQueryWrapper<ShortLinkDO> queryWrapper = Wrappers.lambdaQuery(ShortLinkDO.class)
-//                .eq(ShortLinkDO::getGid, shortLinkGotoDO.getGid())
-//                .eq(ShortLinkDO::getFullShortUrl, fullShortUrl)
-//                .eq(ShortLinkDO::getDelFlag, 0)
-//                .eq(ShortLinkDO::getEnableStatus, 0);
-//        ShortLinkDO shortLinkDO = baseMapper.selectOne(queryWrapper);
-//        if (shortLinkDO != null) {
-//            ((HttpServletResponse) response).sendRedirect(shortLinkDO.getOriginUrl());
-//        }
         // 网站域名名称 domain
         String serverName = request.getServerName();
         String serverPort = Optional.of(request.getServerPort())
