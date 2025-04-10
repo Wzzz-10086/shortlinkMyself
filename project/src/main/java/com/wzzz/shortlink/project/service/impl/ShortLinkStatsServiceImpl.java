@@ -8,6 +8,9 @@ import cn.hutool.core.date.DateUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.wzzz.shortlink.project.common.biz.user.UserContext;
+import com.wzzz.shortlink.project.common.convention.exception.ServiceException;
 import com.wzzz.shortlink.project.dao.entity.*;
 import com.wzzz.shortlink.project.dao.mapper.*;
 import com.wzzz.shortlink.project.dto.req.ShortLinkGroupStatsAccessRecordReqDTO;
@@ -36,6 +39,7 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
     private final LinkOsStatsMapper linkOsStatsMapper;
     private final LinkDeviceStatsMapper linkDeviceStatsMapper;
     private final LinkNetworkStatsMapper linkNetworkStatsMapper;
+    private final LinkGroupMapper linkGroupMapper;
 
     /**
      * 访问单个短链接指定时间内监控数据
@@ -44,6 +48,8 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
      */
     @Override
     public ShortLinkStatsRespDTO oneShortLinkStats(ShortLinkStatsReqDTO requestParam) {
+        //检查是否为当前用户查询
+        checkGroupBelongToUser(requestParam.getGid());
         // 基础访问详情
         //根据短链接获取指定日期内小时基础监控数据
         List<LinkAccessStatsDO> listStatsByShortLink = linkAccessStatsMapper.listStatsByShortLink(requestParam);
@@ -246,6 +252,7 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
      */
     @Override
     public IPage<ShortLinkStatsAccessRecordRespDTO> shortLinkStatsAccessRecord(ShortLinkStatsAccessRecordReqDTO requestParam) {
+        checkGroupBelongToUser(requestParam.getGid());
         LambdaQueryWrapper<LinkAccessLogsDO> queryWrapper = Wrappers.lambdaQuery(LinkAccessLogsDO.class)
                 .eq(LinkAccessLogsDO::getFullShortUrl, requestParam.getFullShortUrl())
                 .between(LinkAccessLogsDO::getCreateTime, requestParam.getStartDate(), requestParam.getEndDate())
@@ -253,6 +260,9 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
                 .orderByDesc(LinkAccessLogsDO::getCreateTime);
         IPage<LinkAccessLogsDO> linkAccessLogsDOIPage = linkAccessLogsMapper.selectPage(requestParam, queryWrapper);
         IPage<ShortLinkStatsAccessRecordRespDTO> actualResult = linkAccessLogsDOIPage.convert(each -> BeanUtil.toBean(each, ShortLinkStatsAccessRecordRespDTO.class));
+        if (CollUtil.isEmpty(linkAccessLogsDOIPage.getRecords())) {
+            return new Page<>();
+        }
         //获取用户列表
         List<String> userAccessLogsList = actualResult.getRecords().stream()
                 .map(ShortLinkStatsAccessRecordRespDTO::getUser)
@@ -292,6 +302,7 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
      */
     @Override
     public ShortLinkStatsRespDTO groupShortLinkStats(ShortLinkGroupStatsReqDTO requestParam) {
+        checkGroupBelongToUser(requestParam.getGid());
         //根据分组获取指定日期内基础监控数据 - date pv uv uip
         List<LinkAccessStatsDO> listStatsByGroup = linkAccessStatsMapper.listStatsByGroup(requestParam);
         if (CollUtil.isEmpty(listStatsByGroup)) {
@@ -465,7 +476,11 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
     //分页访问
     @Override
     public IPage<ShortLinkStatsAccessRecordRespDTO> groupShortLinkStatsAccessRecord(ShortLinkGroupStatsAccessRecordReqDTO requestParam) {
+        checkGroupBelongToUser(requestParam.getGid());
         IPage<LinkAccessLogsDO> linkAccessLogsDOIPage = linkAccessLogsMapper.selectGroupPage(requestParam);
+        if (CollUtil.isEmpty(linkAccessLogsDOIPage.getRecords())) {
+            return new Page<>();
+        }
         IPage<ShortLinkStatsAccessRecordRespDTO> actualResult = linkAccessLogsDOIPage
                 .convert(each -> BeanUtil.toBean(each, ShortLinkStatsAccessRecordRespDTO.class));
         List<String> userAccessLogsList = actualResult.getRecords().stream()
@@ -487,6 +502,18 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
             each.setUvType(uvType);
         });
         return actualResult;
+    }
+
+    public void checkGroupBelongToUser(String gid) throws ServiceException {
+        String username = Optional.ofNullable(UserContext.getUsername())
+                .orElseThrow(() -> new ServiceException("用户未登录"));
+        LambdaQueryWrapper<GroupDO> queryWrapper = Wrappers.lambdaQuery(GroupDO.class)
+                .eq(GroupDO::getGid, gid)
+                .eq(GroupDO::getUsername, username);
+        List<GroupDO> groupDOList = linkGroupMapper.selectList(queryWrapper);
+        if (CollUtil.isEmpty(groupDOList)) {
+            throw new ServiceException("用户信息与分组标识不匹配");
+        }
     }
 
 }

@@ -201,7 +201,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                     .domain(hasShortLinkDO.getDomain())
                     .shortUri(hasShortLinkDO.getShortUri())
                     .clickNum(hasShortLinkDO.getClickNum())
-                    .favicon(hasShortLinkDO.getFavicon())
+                    .favicon(Objects.equals(requestParam.getOriginUrl(), hasShortLinkDO.getOriginUrl()) ? hasShortLinkDO.getFavicon() : getFavicon(requestParam.getOriginUrl()))
                     .createdType(hasShortLinkDO.getCreatedType())
                     .gid(requestParam.getGid())
                     .originUrl(requestParam.getOriginUrl())
@@ -240,7 +240,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                         .totalUv(hasShortLinkDO.getTotalUv())
                         .totalUip(hasShortLinkDO.getTotalUip())
                         .fullShortUrl(hasShortLinkDO.getFullShortUrl())
-                        .favicon(getFavicon(requestParam.getOriginUrl()))
+                        .favicon(Objects.equals(requestParam.getOriginUrl(), hasShortLinkDO.getOriginUrl()) ? hasShortLinkDO.getFavicon() : getFavicon(requestParam.getOriginUrl()))
                         .delTime(0L)
                         .build();
                 baseMapper.insert(shortLinkDO);
@@ -263,8 +263,9 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             //删除缓存
             stringRedisTemplate.delete(String.format(GOTO_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
             //修改前临时短链接日期已失效 -> 防止恢复后仍无法跳转
-            if (hasShortLinkDO.getValidDate() != null && hasShortLinkDO.getValidDate().before(new Date())) {
-                if (Objects.equals(requestParam.getValidDateType(), VailDateTypeEnum.PERMANENT.getType()) || requestParam.getValidDate().after(new Date())) {
+            Date currentDate = new Date();
+            if (hasShortLinkDO.getValidDate() != null && hasShortLinkDO.getValidDate().before(currentDate)) {
+                if (Objects.equals(requestParam.getValidDateType(), VailDateTypeEnum.PERMANENT.getType()) || requestParam.getValidDate().after(currentDate)) {
                     stringRedisTemplate.delete(String.format(GOTO_IS_NULL_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
                 }
             }
@@ -284,8 +285,8 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         //如果信息存在于缓存中，直接返回信息
         String originalLink = stringRedisTemplate.opsForValue().get(String.format(GOTO_SHORT_LINK_KEY, fullShortUrl));
         if (StrUtil.isNotBlank(originalLink)) {
-            ShortLinkStatsRecordDTO statsRecord = buildLinkStatsRecordAndSetUser(fullShortUrl, request, response);
-            shortLinkStats(fullShortUrl, null, statsRecord);
+            //消息队列查询
+            shortLinkStats(buildLinkStatsRecordAndSetUser(fullShortUrl, request, response));
             ((HttpServletResponse) response).sendRedirect(originalLink);
             return;
         }
@@ -309,8 +310,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             // 如果短链接在缓存中
             originalLink = stringRedisTemplate.opsForValue().get(String.format(GOTO_SHORT_LINK_KEY, fullShortUrl));
             if (StrUtil.isNotBlank(originalLink)) {
-                ShortLinkStatsRecordDTO statsRecord = buildLinkStatsRecordAndSetUser(fullShortUrl, request, response);
-                shortLinkStats(fullShortUrl, null, statsRecord);
+                shortLinkStats(buildLinkStatsRecordAndSetUser(fullShortUrl, request, response));
                 ((HttpServletResponse) response).sendRedirect(originalLink);
                 return;
             }
@@ -348,8 +348,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                     shortLinkDO.getOriginUrl(),
                     LinkUtil.getLinkCacheValidTime(shortLinkDO.getValidDate()), TimeUnit.MILLISECONDS
             );
-            ShortLinkStatsRecordDTO statsRecord = buildLinkStatsRecordAndSetUser(fullShortUrl, request, response);
-            shortLinkStats(fullShortUrl, null, statsRecord);
+            shortLinkStats(buildLinkStatsRecordAndSetUser(fullShortUrl, request, response));
             ((HttpServletResponse) response).sendRedirect(shortLinkDO.getOriginUrl());
         } finally {
             lock.unlock();
@@ -402,6 +401,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 .browser(browser)
                 .device(device)
                 .network(network)
+                .currentDate(new Date())
                 .build();
     }
     /**
@@ -439,13 +439,9 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
 
     /**
      * 统计访问次数
-     * @param fullShortUrl
-     * @param gid
      */
-    public void shortLinkStats(String fullShortUrl, String gid, ShortLinkStatsRecordDTO statsRecord) {
+    public void shortLinkStats(ShortLinkStatsRecordDTO statsRecord) {
         Map<String, String> producerMap = new HashMap<>();
-        producerMap.put("fullShortUrl", fullShortUrl);
-        producerMap.put("gid", gid);
         producerMap.put("statsRecord", JSON.toJSONString(statsRecord));
         shortLinkStatsSaveProducer.send(producerMap);
     }
@@ -467,37 +463,53 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         }
     }
 
-    @SneakyThrows
-    private String getFavicon(String url) {
-
-            //创建URL对象
+//    @SneakyThrows
+//    private String getFavicon(String url) {
+//
+//            //创建URL对象
+//            URL targetUrl = new URL(url);
+//            //打开连接
+//            HttpURLConnection connection = (HttpURLConnection) targetUrl.openConnection();
+//            // 禁止自动处理重定向
+//            connection.setInstanceFollowRedirects(false);
+//            // 设置请求方法为GET
+//            connection.setRequestMethod("GET");
+//            //连接
+//            connection.connect();
+//            //获取响应码
+//            int responseCode = connection.getResponseCode();
+//            // 如果是重定向响应码
+//            if (responseCode == HttpURLConnection.HTTP_MOVED_PERM || responseCode == HttpURLConnection.HTTP_MOVED_TEMP) {
+//                //获取重定向的URL
+//                String redirectUrl = connection.getHeaderField("Location");
+//                //如果重定向URL不为空
+//                if (redirectUrl != null) {
+//                    // 创建新的URL对象
+//                    URL newUrl = new URL(redirectUrl);//打开新的连接
+//                    connection = (HttpURLConnection) newUrl.openConnection();//设置请求方法为GET
+//                    connection.setRequestMethod("GET");//连接
+//                    connection.connect();//获取新的响应码
+//                    responseCode = connection.getResponseCode();
+//                }
+//            }
+//            // 如果响应码为200(HTTP_OK)
+//            if (responseCode == HttpURLConnection.HTTP_OK) {
+//                Document document = Jsoup.connect(url).get();
+//                Element faviconLink = document.select("link[rel~=(?i)^(shortcut )?icon]").first();
+//                if (faviconLink != null) {
+//                    return faviconLink.attr("abs:href");
+//                }
+//            }
+//            return null;
+//        }
+        @SneakyThrows
+        private String getFavicon(String url) {
             URL targetUrl = new URL(url);
-            //打开连接
             HttpURLConnection connection = (HttpURLConnection) targetUrl.openConnection();
-            // 禁止自动处理重定向
-            connection.setInstanceFollowRedirects(false);
-            // 设置请求方法为GET
             connection.setRequestMethod("GET");
-            //连接
             connection.connect();
-            //获取响应码
             int responseCode = connection.getResponseCode();
-            // 如果是重定向响应码
-            if (responseCode == HttpURLConnection.HTTP_MOVED_PERM || responseCode == HttpURLConnection.HTTP_MOVED_TEMP) {
-                //获取重定向的URL
-                String redirectUrl = connection.getHeaderField("Location");
-                //如果重定向URL不为空
-                if (redirectUrl != null) {
-                    // 创建新的URL对象
-                    URL newUrl = new URL(redirectUrl);//打开新的连接
-                    connection = (HttpURLConnection) newUrl.openConnection();//设置请求方法为GET
-                    connection.setRequestMethod("GET");//连接
-                    connection.connect();//获取新的响应码
-                    responseCode = connection.getResponseCode();
-                }
-            }
-            // 如果响应码为200(HTTP_OK)
-            if (responseCode == HttpURLConnection.HTTP_OK) {
+            if (HttpURLConnection.HTTP_OK == responseCode) {
                 Document document = Jsoup.connect(url).get();
                 Element faviconLink = document.select("link[rel~=(?i)^(shortcut )?icon]").first();
                 if (faviconLink != null) {
@@ -506,6 +518,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             }
             return null;
         }
+
 
     /**
      * 白名单

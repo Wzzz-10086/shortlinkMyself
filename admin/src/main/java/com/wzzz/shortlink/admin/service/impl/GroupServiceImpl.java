@@ -2,14 +2,18 @@ package com.wzzz.shortlink.admin.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.wzzz.shortlink.admin.common.biz.user.UserContext;
 import com.wzzz.shortlink.admin.common.convention.exception.ClientException;
+import com.wzzz.shortlink.admin.common.convention.exception.ServiceException;
 import com.wzzz.shortlink.admin.common.convention.result.Result;
 import com.wzzz.shortlink.admin.dao.entity.GroupDO;
+import com.wzzz.shortlink.admin.dao.entity.GroupUniqueDO;
 import com.wzzz.shortlink.admin.dao.mapper.GroupMapper;
+import com.wzzz.shortlink.admin.dao.mapper.GroupUniqueMapper;
 import com.wzzz.shortlink.admin.dto.req.GroupSortReqDTO;
 import com.wzzz.shortlink.admin.dto.req.GroupUpdateDTO;
 import com.wzzz.shortlink.admin.dto.resp.ShortLinkGroupRespDTO;
@@ -18,9 +22,11 @@ import com.wzzz.shortlink.admin.remote.dto.resp.ShortLinkGroupCountQueryRespDTO;
 import com.wzzz.shortlink.admin.service.GroupService;
 import com.wzzz.shortlink.admin.toolkit.RandomUtil;
 import lombok.RequiredArgsConstructor;
+import org.redisson.api.RBloomFilter;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -34,6 +40,8 @@ import static com.wzzz.shortlink.admin.common.constant.RedisCacheConstant.LOCK_G
 @RequiredArgsConstructor
 public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implements GroupService {
     private final RedissonClient redissonClient;
+    private final RBloomFilter<String> gidRegisterCachePenetrationBloomFilter;
+    private final GroupUniqueMapper groupUniqueMapper;
 
     @Value("${short-link.group.max-num}")
     private Integer groupMaxNum;
@@ -42,7 +50,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
 
     @Override
     public void saveGroup(String groupName) {
-       this.saveGroup(UserContext.getUsername(),groupName);
+        this.saveGroup(UserContext.getUsername(), groupName);
     }
 
     @Override
@@ -58,17 +66,27 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
             if (CollUtil.isNotEmpty(groupDOList) && groupDOList.size() == groupMaxNum) {
                 throw new ClientException(String.format("已超出最大分组数：%d", groupMaxNum));
             }
-            String gid;
-            do {
-                gid = RandomUtil.generateRandom();
-            } while (hasGid(username, gid));
-            GroupDO groupDO = GroupDO.builder()
-                    .gid(gid)
-                    .sortOrder(0)
-                    .username(username)
-                    .name(groupName)
-                    .build();
-            baseMapper.insert(groupDO);
+            int retryCount = 0;
+            int maxRetries = 10;
+            String gid = null;
+            while (retryCount < maxRetries) {
+                gid = saveGroupUniqueReturnGid();
+                if (StrUtil.isNotEmpty(gid)) {
+                    GroupDO groupDO = GroupDO.builder()
+                            .gid(gid)
+                            .sortOrder(0)
+                            .username(username)
+                            .name(groupName)
+                            .build();
+                    baseMapper.insert(groupDO);
+                    gidRegisterCachePenetrationBloomFilter.add(gid);
+                    break;
+                }
+                retryCount++;
+            }
+            if (StrUtil.isEmpty(gid)) {
+                throw new ServiceException("生成分组标识频繁");
+            }
         } finally {
             lock.unlock();
         }
@@ -77,6 +95,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
 
     /**
      * 查询该用户名下的所有分组
+     *
      * @return List<ShortLinkGroupRespDTO> 返回当前用户的所有分组信息，包含每个分组的短链接数量
      */
 
@@ -125,7 +144,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
         System.out.println(UserContext.getUsername());
         GroupDO groupDO = new GroupDO();
         groupDO.setName(updateDTO.getName());
-        baseMapper.update(groupDO,queryWrapper);
+        baseMapper.update(groupDO, queryWrapper);
     }
 
     @Override
@@ -136,7 +155,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
                 .eq(GroupDO::getDelFlag, 0);
         GroupDO groupDO = new GroupDO();
         groupDO.setDelFlag(1);
-        baseMapper.update(groupDO,queryWrapper);
+        baseMapper.update(groupDO, queryWrapper);
     }
 
     @Override
@@ -147,26 +166,28 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
                     .sortOrder(each.getSortOrder())
                     .build();
             LambdaQueryWrapper<GroupDO> queryWrapper = Wrappers.lambdaQuery(GroupDO.class)
-                   .eq(GroupDO::getGid, each.getGid())
-                   .eq(GroupDO::getUsername, UserContext.getUsername())
-                   .eq(GroupDO::getDelFlag, 0);
-            baseMapper.update(groupDO,queryWrapper);
+                    .eq(GroupDO::getGid, each.getGid())
+                    .eq(GroupDO::getUsername, UserContext.getUsername())
+                    .eq(GroupDO::getDelFlag, 0);
+            baseMapper.update(groupDO, queryWrapper);
         });
     }
 
 
-    /**
-     * 检查表中是否含有重复的gid
-     * @param gid
-     * @return
-     */
-    public Boolean hasGid(String username,String gid){
-        LambdaQueryWrapper<GroupDO> queryWrapper = Wrappers.lambdaQuery(GroupDO.class)
-                .eq(GroupDO::getGid, gid)
-                .eq(GroupDO::getUsername,Optional.ofNullable(username).orElse(UserContext.getUsername()));
-        //该用户组内是否有该gid
-        GroupDO hasGidFlag = baseMapper.selectOne(queryWrapper);
-        return  hasGidFlag != null;
-
+    private String saveGroupUniqueReturnGid() {
+        String gid = RandomUtil.generateRandom();
+        if (gidRegisterCachePenetrationBloomFilter.contains(gid)) {
+            return null;
+        }
+        //如果不在布隆过滤器中
+        GroupUniqueDO groupUniqueDO = GroupUniqueDO.builder()
+                .gid(gid)
+                .build();
+            try {
+                groupUniqueMapper.insert(groupUniqueDO);
+            } catch (DuplicateKeyException e) {
+                return null;
+            }
+        return gid;
     }
 }

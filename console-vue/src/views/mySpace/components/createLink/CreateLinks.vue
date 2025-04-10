@@ -188,6 +188,7 @@ watch(
 watch(
   () => props.defaultGid,
   (nV) => {
+    console.log('数据发生变化了', props.defaultGid)
     if (props.defaultGid) {
       formData.gid = props.defaultGid
     } else {
@@ -303,6 +304,7 @@ const onSubmit = async (formEl) => {
   }
   await formEl.validate(async (valid, fields) => {
     if (valid) {
+      console.log('这是formdata', formData)
       let { describes, originUrls } = formData
       describes = transferStrToArray(describes)
       originUrls = transferStrToArray(originUrls)
@@ -312,6 +314,7 @@ const onSubmit = async (formEl) => {
         emits('onSubmit', false)
         submitDisable.value = false
         downLoadXls(res)
+        console.log(res.data)
       } else if (!res?.data?.success) {
         ElMessage.error(res?.data?.message)
       } else {
@@ -320,6 +323,7 @@ const onSubmit = async (formEl) => {
         submitDisable.value = false
       }
     } else {
+      console.log('error submit!', fields)
       // ElMessage.error('创建失败！')
     }
   })

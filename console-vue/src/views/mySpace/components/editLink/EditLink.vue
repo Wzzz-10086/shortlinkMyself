@@ -50,6 +50,7 @@ const API = proxy.$API
 const editData = props.editData
 // url的校验规则
 const reg = /^(https?:\/\/(([a-zA-Z0-9]+-?)+[a-zA-Z0-9]+\.)+(([a-zA-Z0-9]+-?)+[a-zA-Z0-9]+))(:\d+)?(\/.*)?(\?.*)?(#.*)?$/;
+console.log(editData)
 // 自定义时间中选择几天
 const shortcuts = [
   {
@@ -228,6 +229,7 @@ const disabledDate = (time) => {
   return new Date(time).getTime() < new Date().getTime()//选当前时间之后的时间
 }
 
+console.log(new Date().getTime())
 // 将组件里面的确认和取消点击事件传出去
 const emits = defineEmits(['onSubmit', 'cancel', 'updatePage'])
 // 点击确定按钮后的校验
@@ -240,8 +242,10 @@ const onSubmit = async (formEl) => {
     if (valid) {
       emits('onSubmit', false)
       const res = await API.smallLinkPage.editSmallLink(formData)
+      console.log('submit!', res)
       emits('updatePage')
     } else {
+      console.log('error submit!', fields)
     }
   })
 }
