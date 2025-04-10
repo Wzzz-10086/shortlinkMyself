@@ -144,7 +144,8 @@ public interface ShortLinkActualRemoteService {
      * @return 短链接监控访问记录信息
      */
     @GetMapping("/api/short-link/v1/stats/access-record")
-    Result<Page<ShortLinkStatsAccessRecordRespDTO>> shortLinkStatsAccessRecord(@SpringQueryMap ShortLinkStatsAccessRecordReqDTO requestParam);
+    Result<Page<ShortLinkStatsAccessRecordRespDTO>> shortLinkStatsAccessRecord(@SpringQueryMap ShortLinkStatsAccessRecordReqDTO requestParam, @RequestParam("current") Long current,
+                                                                               @RequestParam("size") Long size);
 
     /**
      * 访问分组短链接指定时间内监控访问记录数据
@@ -152,5 +153,6 @@ public interface ShortLinkActualRemoteService {
      * @return 分组短链接监控访问记录信息
      */
     @GetMapping("/api/short-link/v1/stats/access-record/group")
-    Result<Page<ShortLinkStatsAccessRecordRespDTO>> groupShortLinkStatsAccessRecord(@SpringQueryMap ShortLinkGroupStatsAccessRecordReqDTO requestParam);
+    Result<Page<ShortLinkStatsAccessRecordRespDTO>> groupShortLinkStatsAccessRecord(@SpringQueryMap ShortLinkGroupStatsAccessRecordReqDTO requestParam, @RequestParam("current") Long current,
+                                                                                    @RequestParam("size") Long size);
 }

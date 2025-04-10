@@ -46,7 +46,7 @@ public class ShortLinkStatsController {
      */
     @GetMapping("/api/short-link/admin/v1/stats/access-record")
     public Result<Page<ShortLinkStatsAccessRecordRespDTO>> shortLinkStatsAccessRecord(ShortLinkStatsAccessRecordReqDTO requestParam) {
-        return shortLinkActualRemoteService.shortLinkStatsAccessRecord(requestParam);
+        return shortLinkActualRemoteService.shortLinkStatsAccessRecord(requestParam,requestParam.getCurrent(),requestParam.getSize());
     }
 
     /**
@@ -54,6 +54,6 @@ public class ShortLinkStatsController {
      */
     @GetMapping("/api/short-link/admin/v1/stats/access-record/group")
     public Result<Page<ShortLinkStatsAccessRecordRespDTO>> groupShortLinkStatsAccessRecord(ShortLinkGroupStatsAccessRecordReqDTO requestParam) {
-        return shortLinkActualRemoteService.groupShortLinkStatsAccessRecord(requestParam);
+        return shortLinkActualRemoteService.groupShortLinkStatsAccessRecord(requestParam,requestParam.getCurrent(),requestParam.getSize());
     }
 }

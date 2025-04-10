@@ -34,6 +34,11 @@ public class ShortLinkPageRespDTO {
     private String originUrl;
 
     /**
+     * 启用标识 0：启用 1：未启用
+     */
+    private Integer enableStatus;
+
+    /**
      * 分组标识
      */
     private String gid;
